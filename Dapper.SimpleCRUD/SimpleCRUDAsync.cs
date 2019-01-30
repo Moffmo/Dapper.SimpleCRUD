@@ -27,9 +27,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Returns a single entity by a single id from table T.</returns>
-        public static async Task<T> GetAsync<T>(this IDbConnection connection, object id, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static async Task<T> GetAsync<T>(this IDbConnection connection, object id, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var builder = BuildGetQuery<T>(id);
+            var builder = BuildGetQuery<T>(id, includeDeleted);
             var query = await connection.QueryAsync<T>(builder.query, builder.parameters, transaction, commandTimeout);
             return query.FirstOrDefault();
         }
@@ -47,9 +47,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Gets a list of entities with optional exact match where conditions</returns>
-        public static Task<IEnumerable<T>> GetListAsync<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static Task<IEnumerable<T>> GetListAsync<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var builder = BuildGetListQuery<T>(whereConditions);
+            var builder = BuildGetListQuery<T>(whereConditions, includeDeleted);
             return connection.QueryAsync<T>(builder, whereConditions, transaction, commandTimeout);
         }
 
@@ -68,9 +68,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Gets a list of entities with optional SQL where conditions</returns>
-        public static Task<IEnumerable<T>> GetListAsync<T>(this IDbConnection connection, string conditions, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static Task<IEnumerable<T>> GetListAsync<T>(this IDbConnection connection, string conditions, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var query = BuildGetListQuery<T>(conditions);
+            var query = BuildGetListQuery<T>(conditions, includeDeleted);
             return connection.QueryAsync<T>(query, parameters, transaction, commandTimeout);
         }
 
@@ -82,9 +82,9 @@ namespace Dapper
         /// <typeparam name="T"></typeparam>
         /// <param name="connection"></param>
         /// <returns>Gets a list of all entities</returns>
-        public static Task<IEnumerable<T>> GetListAsync<T>(this IDbConnection connection)
+        public static Task<IEnumerable<T>> GetListAsync<T>(this IDbConnection connection, bool includeDeleted = false)
         {
-            return connection.GetListAsync<T>(new { });
+            return connection.GetListAsync<T>(new { }, includeDeleted: includeDeleted);
         }
 
         /// <summary>
@@ -105,9 +105,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Gets a list of entities with optional exact match where conditions</returns>
-        public static Task<IEnumerable<T>> GetListPagedAsync<T>(this IDbConnection connection, int pageNumber, int rowsPerPage, string conditions, string orderby, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static Task<IEnumerable<T>> GetListPagedAsync<T>(this IDbConnection connection, int pageNumber, int rowsPerPage, string conditions, string orderby, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var query = BuildGetListPagedQuery<T>(pageNumber, rowsPerPage, conditions, orderby);
+            var query = BuildGetListPagedQuery<T>(pageNumber, rowsPerPage, conditions, orderby, includeDeleted);
             return connection.QueryAsync<T>(query, parameters, transaction, commandTimeout);
         }
 

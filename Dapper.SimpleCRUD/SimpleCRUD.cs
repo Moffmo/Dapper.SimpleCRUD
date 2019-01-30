@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.CSharp.RuntimeBinder;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
@@ -6,7 +7,6 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using Microsoft.CSharp.RuntimeBinder;
 
 namespace Dapper
 {
@@ -108,16 +108,17 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Returns a single entity by a single id from table T.</returns>
-        public static T Get<T>(this IDbConnection connection, object id, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static T Get<T>(this IDbConnection connection, object id, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var builder = BuildGetQuery<T>(id);
+            var builder = BuildGetQuery<T>(id, includeDeleted);
             return connection.Query<T>(builder.query, builder.parameters, transaction, true, commandTimeout).FirstOrDefault();
         }
 
-        private static (StringBuilder sb, List<PropertyInfo> idProps, Type currentType) BuildGenericSelect<T>()
+        private static (StringBuilder sb, List<PropertyInfo> idProps, Type currentType, PropertyInfo deleteProp) BuildGenericSelect<T>()
         {
             var currenttype = typeof(T);
             var idProps = GetIdProperties(currenttype).ToList();
+            var deleteProp = GetSoftDeleteProperty(currenttype);
             if (!idProps.Any())
                 throw new ArgumentException("Entity must have at least one [Key] property");
 
@@ -128,12 +129,13 @@ namespace Dapper
             //create a new empty instance of the type to get the base properties
             BuildSelect(sb, GetScaffoldableProperties<T>().ToArray());
             sb.AppendFormat(" from {0}", name);
-            return (sb, idProps, currenttype);
+
+            return (sb, idProps, currenttype, deleteProp);
         }
 
-        private static (string query, DynamicParameters parameters) BuildGetQuery<T>(object id)
+        private static (string query, DynamicParameters parameters) BuildGetQuery<T>(object id, bool includeDeleted)
         {
-            var (sb, idProps, currentType) = BuildGenericSelect<T>();
+            var (sb, idProps, currentType, deleteProp) = BuildGenericSelect<T>();
             sb.Append(" where ");
 
             for (var i = 0; i < idProps.Count; i++)
@@ -142,6 +144,8 @@ namespace Dapper
                     sb.Append(" and ");
                 sb.AppendFormat("{0} = @{1}", GetColumnName(idProps[i]), idProps[i].Name);
             }
+
+            AddFilterDeletedIfNeeded(sb, deleteProp, includeDeleted, " AND ");
 
             var dynParms = new DynamicParameters();
             if (idProps.Count == 1)
@@ -158,6 +162,14 @@ namespace Dapper
             return (sb.ToString(), dynParms);
         }
 
+        private static void AddFilterDeletedIfNeeded(StringBuilder sb, PropertyInfo deleteProp, bool includeDeleted, string prefix = "")
+        {
+            if (deleteProp != null && !includeDeleted)
+            {
+                sb.Append($"{prefix}{deleteProp.Name} IS NULL");
+            }
+        }
+
         /// <summary>
         /// <para>By default queries the table matching the class name</para>
         /// <para>-Table name can be overridden by adding an attribute on your class [Table("YourTableName")]</para>
@@ -171,20 +183,25 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Gets a list of entities with optional exact match where conditions</returns>
-        public static IEnumerable<T> GetList<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static IEnumerable<T> GetList<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var builder = BuildGetListQuery<T>(whereConditions);
+            var builder = BuildGetListQuery<T>(whereConditions, includeDeleted);
             return connection.Query<T>(builder, whereConditions, transaction, true, commandTimeout);
         }
 
-        private static string BuildGetListQuery<T>(object whereConditions)
+        private static string BuildGetListQuery<T>(object whereConditions, bool includeDeleted)
         {
-            var (sb, idProps, currentType) = BuildGenericSelect<T>();
+            var (sb, idProps, currentType, deleteProp) = BuildGenericSelect<T>();
             var whereprops = GetAllProperties(whereConditions).ToArray();
             if (whereprops.Any())
             {
                 sb.Append(" where ");
                 BuildWhere<T>(sb, whereprops, whereConditions);
+                AddFilterDeletedIfNeeded(sb, deleteProp, includeDeleted, " AND ");
+            }
+            else
+            {
+                AddFilterDeletedIfNeeded(sb, deleteProp, includeDeleted, " where ");
             }
 
             if (Debugger.IsAttached)
@@ -208,16 +225,22 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Gets a list of entities with optional SQL where conditions</returns>
-        public static IEnumerable<T> GetList<T>(this IDbConnection connection, string conditions, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static IEnumerable<T> GetList<T>(this IDbConnection connection, string conditions, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var query = BuildGetListQuery<T>(conditions);
+            var query = BuildGetListQuery<T>(conditions, includeDeleted);
             return connection.Query<T>(query, parameters, transaction, true, commandTimeout);
         }
 
-        private static string BuildGetListQuery<T>(string whereConditions)
+        private static string BuildGetListQuery<T>(string whereConditions, bool includeDeleted)
         {
-            var (sb, idProps, currentType) = BuildGenericSelect<T>();
+            if (!string.IsNullOrEmpty(whereConditions) && !whereConditions.ToLower().Contains("where"))
+            {
+                throw new ArgumentException("GetList<T> where clause must contain the WHERE keyword");
+            }
+
+            var (sb, idProps, currentType, deleteProp) = BuildGenericSelect<T>();
             sb.Append(" " + whereConditions);
+            AddFilterDeletedIfNeeded(sb, deleteProp, includeDeleted, string.IsNullOrEmpty(whereConditions) ? " where " : " and ");
 
             if (Debugger.IsAttached)
                 Trace.WriteLine(String.Format("GetList<{0}>: {1}", currentType, sb));
@@ -225,16 +248,16 @@ namespace Dapper
         }
 
         /// <summary>
-            /// <para>By default queries the table matching the class name</para>
-            /// <para>-Table name can be overridden by adding an attribute on your class [Table("YourTableName")]</para>
-            /// <para>Returns a list of all entities</para>
-            /// </summary>
-            /// <typeparam name="T"></typeparam>
-            /// <param name="connection"></param>
-            /// <returns>Gets a list of all entities</returns>
-            public static IEnumerable<T> GetList<T>(this IDbConnection connection)
+        /// <para>By default queries the table matching the class name</para>
+        /// <para>-Table name can be overridden by adding an attribute on your class [Table("YourTableName")]</para>
+        /// <para>Returns a list of all entities</para>
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="connection"></param>
+        /// <returns>Gets a list of all entities</returns>
+        public static IEnumerable<T> GetList<T>(this IDbConnection connection, bool includeDeleted = false)
         {
-            return connection.GetList<T>(new { });
+            return connection.GetList<T>(new { }, includeDeleted: includeDeleted);
         }
 
         /// <summary>
@@ -256,14 +279,19 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Gets a paged list of entities with optional exact match where conditions</returns>
-        public static IEnumerable<T> GetListPaged<T>(this IDbConnection connection, int pageNumber, int rowsPerPage, string conditions, string orderby, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static IEnumerable<T> GetListPaged<T>(this IDbConnection connection, int pageNumber, int rowsPerPage, string conditions, string orderby, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var query = BuildGetListPagedQuery<T>(pageNumber, rowsPerPage, conditions, orderby);
+            var query = BuildGetListPagedQuery<T>(pageNumber, rowsPerPage, conditions, orderby, includeDeleted);
             return connection.Query<T>(query, parameters, transaction, true, commandTimeout);
         }
 
-        private static string BuildGetListPagedQuery<T>(int pageNumber, int rowsPerPage, string conditions, string orderby)
+        private static string BuildGetListPagedQuery<T>(int pageNumber, int rowsPerPage, string conditions, string orderby, bool includeDeleted)
         {
+            if (!string.IsNullOrEmpty(conditions) && !conditions.ToLower().Contains("where"))
+            {
+                throw new ArgumentException("GetListPaged<T> where clause must contain the WHERE keyword");
+            }
+
             if (string.IsNullOrEmpty(_getPagedListSql))
                 throw new Exception("GetListPage is not supported with the current SQL Dialect");
 
@@ -272,6 +300,7 @@ namespace Dapper
 
             var currenttype = typeof(T);
             var idProps = GetIdProperties(currenttype).ToList();
+            var deleteProp = GetSoftDeleteProperty(currenttype);
             if (!idProps.Any())
                 throw new ArgumentException("Entity must have at least one [Key] property");
 
@@ -282,6 +311,10 @@ namespace Dapper
             {
                 orderby = GetColumnName(idProps.First());
             }
+
+            var whereConditions = new StringBuilder(conditions);
+            AddFilterDeletedIfNeeded(whereConditions, deleteProp, includeDeleted,
+                string.IsNullOrEmpty(conditions) ? " where " : " and ");
 
             //create a new empty instance of the type to get the base properties
             BuildSelect(sb, GetScaffoldableProperties<T>().ToArray());
@@ -777,7 +810,7 @@ namespace Dapper
                       && property.GetCustomAttributes(true).Any(attr => attr.GetType().Name == typeof(KeyAttribute).Name)
                       && property.GetCustomAttributes(true).All(attr => attr.GetType().Name != typeof(RequiredAttribute).Name))
                     continue;
-                if (property.GetCustomAttributes(true).Any(attr => 
+                if (property.GetCustomAttributes(true).Any(attr =>
                     attr.GetType().Name == typeof(IgnoreInsertAttribute).Name ||
                     attr.GetType().Name == typeof(NotMappedAttribute).Name ||
                     attr.GetType().Name == typeof(ReadOnlyAttribute).Name && IsReadOnly(property))
@@ -811,11 +844,11 @@ namespace Dapper
                       && property.GetCustomAttributes(true).Any(attr => attr.GetType().Name == typeof(KeyAttribute).Name)
                       && property.GetCustomAttributes(true).All(attr => attr.GetType().Name != typeof(RequiredAttribute).Name))
                     continue;
-                if (property.GetCustomAttributes(true).Any(attr => 
+                if (property.GetCustomAttributes(true).Any(attr =>
                     attr.GetType().Name == typeof(IgnoreInsertAttribute).Name ||
                     attr.GetType().Name == typeof(NotMappedAttribute).Name ||
                     attr.GetType().Name == typeof(ReadOnlyAttribute).Name && IsReadOnly(property))) continue;
-                
+
                 if (property.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) && property.GetCustomAttributes(true).All(attr => attr.GetType().Name != typeof(RequiredAttribute).Name) && property.PropertyType != typeof(Guid)) continue;
 
                 sb.Append(GetColumnName(property));
@@ -918,6 +951,14 @@ namespace Dapper
             return tp.Any() ? tp : type.GetProperties().Where(p => p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase));
         }
 
+        //Get all properties that are named Id or have the Key attribute
+        //For Get(id) and Delete(id) we don't have an entity, just the type so this method is used
+        private static PropertyInfo GetSoftDeleteProperty(Type type)
+        {
+            var tp = type.GetProperties().Where(p => p.PropertyType == typeof(DateTimeOffset?) && (p.GetCustomAttributes(true).Any(attr => attr.GetType().Name == typeof(SoftDeleteAttribute).Name))).ToList();
+            return tp.Any() ? tp.FirstOrDefault() : type.GetProperties().FirstOrDefault(p => p.PropertyType == typeof(DateTimeOffset?) && p.Name.Equals("Deleted", StringComparison.OrdinalIgnoreCase));
+        }
+
         //Gets the table name for this entity
         //For Inserts and updates we have a whole entity so this method is used
         //Uses class name by default and overrides if the class has a Table attribute
@@ -933,9 +974,8 @@ namespace Dapper
         //Uses class name by default and overrides if the class has a Table attribute
         private static string GetTableName(Type type)
         {
-            string tableName;
 
-            if (TableNames.TryGetValue(type, out tableName))
+            if (TableNames.TryGetValue(type, out string tableName))
                 return tableName;
 
             tableName = _tableNameResolver.ResolveTableName(type);
@@ -947,9 +987,9 @@ namespace Dapper
 
         private static string GetColumnName(PropertyInfo propertyInfo)
         {
-            string columnName, key = string.Format("{0}.{1}", propertyInfo.DeclaringType, propertyInfo.Name);
+            string key = string.Format("{0}.{1}", propertyInfo.DeclaringType, propertyInfo.Name);
 
-            if (ColumnNames.TryGetValue(key, out columnName))
+            if (ColumnNames.TryGetValue(key, out string columnName))
                 return columnName;
 
             columnName = _columnNameResolver.ResolveColumnName(propertyInfo);
@@ -1191,6 +1231,14 @@ namespace Dapper
     {
     }
 
+    /// <summary>
+    /// Optional Deleted attribute.
+    /// Custom for Dapper.SimpleCRUD to do soft delete with this key instead
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property)]
+    public class SoftDeleteAttribute : Attribute
+    {
+    }
 }
 
 internal static class TypeExtension
