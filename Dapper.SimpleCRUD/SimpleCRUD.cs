@@ -25,6 +25,7 @@ namespace Dapper
         private static string _encapsulation;
         private static string _getIdentitySql;
         private static string _getPagedListSql;
+        private static string _getDateTime;
 
         private static readonly ConcurrentDictionary<Type, string> TableNames = new ConcurrentDictionary<Type, string>();
         private static readonly ConcurrentDictionary<string, string> ColumnNames = new ConcurrentDictionary<string, string>();
@@ -54,24 +55,28 @@ namespace Dapper
                     _encapsulation = "\"{0}\"";
                     _getIdentitySql = string.Format("SELECT LASTVAL() AS id");
                     _getPagedListSql = "Select {SelectColumns} from {TableName} {WhereClause} Order By {OrderBy} LIMIT {RowsPerPage} OFFSET (({PageNumber}-1) * {RowsPerPage})";
+                    _getDateTime = "NOW()";
                     break;
                 case Dialect.SQLite:
                     _dialect = Dialect.SQLite;
                     _encapsulation = "\"{0}\"";
                     _getIdentitySql = string.Format("SELECT LAST_INSERT_ROWID() AS id");
                     _getPagedListSql = "Select {SelectColumns} from {TableName} {WhereClause} Order By {OrderBy} LIMIT {RowsPerPage} OFFSET (({PageNumber}-1) * {RowsPerPage})";
+                    _getDateTime = "datetime('now')";
                     break;
                 case Dialect.MySQL:
                     _dialect = Dialect.MySQL;
                     _encapsulation = "`{0}`";
                     _getIdentitySql = string.Format("SELECT LAST_INSERT_ID() AS id");
                     _getPagedListSql = "Select {SelectColumns} from {TableName} {WhereClause} Order By {OrderBy} LIMIT {Offset},{RowsPerPage}";
+                    _getDateTime = "NOW()";
                     break;
                 default:
                     _dialect = Dialect.SQLServer;
                     _encapsulation = "[{0}]";
                     _getIdentitySql = string.Format("SELECT CAST(SCOPE_IDENTITY()  AS BIGINT) AS [id]");
                     _getPagedListSql = "SELECT * FROM (SELECT ROW_NUMBER() OVER(ORDER BY {OrderBy}) AS PagedNumber, {SelectColumns} FROM {TableName} {WhereClause}) AS u WHERE PagedNUMBER BETWEEN (({PageNumber}-1) * {RowsPerPage} + 1) AND ({PageNumber} * {RowsPerPage})";
+                    _getDateTime = "SYSDATETIMEOFFSET()";
                     break;
             }
         }
@@ -323,7 +328,7 @@ namespace Dapper
             query = query.Replace("{PageNumber}", pageNumber.ToString());
             query = query.Replace("{RowsPerPage}", rowsPerPage.ToString());
             query = query.Replace("{OrderBy}", orderby);
-            query = query.Replace("{WhereClause}", conditions);
+            query = query.Replace("{WhereClause}", whereConditions.ToString());
             query = query.Replace("{Offset}", ((pageNumber - 1) * rowsPerPage).ToString());
 
             if (Debugger.IsAttached)
@@ -494,16 +499,17 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The number of records affected</returns>
-        public static int Delete<T>(this IDbConnection connection, T entityToDelete, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static int Delete<T>(this IDbConnection connection, T entityToDelete, IDbTransaction transaction = null, int? commandTimeout = null, bool deletePermanently = false)
         {
-            var sb = BuildDeleteQuery<T>(entityToDelete);
+            var sb = BuildDeleteQuery<T>(entityToDelete, deletePermanently);
             return connection.Execute(sb.ToString(), entityToDelete, transaction, commandTimeout);
         }
 
-        private static (StringBuilder sb, List<PropertyInfo> idProps, Type currentType) BuildGenericDeleteQuery<T>()
+        private static (StringBuilder sb, List<PropertyInfo> idProps, Type currentType) BuildGenericDeleteQuery<T>(bool deletePermanently)
         {
             var currenttype = typeof(T);
             var idProps = GetIdProperties(currenttype).ToList();
+            var deletedProp = GetSoftDeleteProperty(currenttype);
 
             if (!idProps.Any())
                 throw new ArgumentException("Delete<T> only supports an entity with a [Key] or Id property");
@@ -511,13 +517,22 @@ namespace Dapper
             var name = GetTableName(currenttype);
 
             var sb = new StringBuilder();
-            sb.AppendFormat("Delete from {0} ", name);
+
+            if (deletedProp != null && !deletePermanently)
+            {
+                sb.AppendFormat($"UPDATE {name} SET {deletedProp.Name} = {_getDateTime} ", name);
+            }
+            else
+            {
+                sb.AppendFormat("Delete from {0} ", name);
+            }
+
             return (sb, idProps, currenttype);
         }
 
-        private static string BuildDeleteQuery<T>(T entityToDelete)
+        private static string BuildDeleteQuery<T>(T entityToDelete, bool deletePermanently)
         {
-            var (sb, idProps, currentType) = BuildGenericDeleteQuery<T>();
+            var (sb, idProps, currentType) = BuildGenericDeleteQuery<T>(deletePermanently);
 
             sb.Append(" where ");
             BuildWhere<T>(sb, idProps, entityToDelete);
@@ -542,15 +557,15 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The number of records affected</returns>
-        public static int Delete<T>(this IDbConnection connection, object id, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static int Delete<T>(this IDbConnection connection, object id, IDbTransaction transaction = null, int? commandTimeout = null, bool deletePermanently = false)
         {
-            var (sb, dynParms) = BuildDeleteQuery<T>(id);
+            var (sb, dynParms) = BuildDeleteQuery<T>(id, deletePermanently);
             return connection.Execute(sb, dynParms, transaction, commandTimeout);
         }
 
-        private static (string sb, DynamicParameters dynParms) BuildDeleteQuery<T>(object id)
+        private static (string sb, DynamicParameters dynParms) BuildDeleteQuery<T>(object id, bool deletePermanently)
         {
-            var (sb, idProps, currentType) = BuildGenericDeleteQuery<T>();
+            var (sb, idProps, currentType) = BuildGenericDeleteQuery<T>(deletePermanently);
             sb.Append(" where ");
 
             for (var i = 0; i < idProps.Count; i++)
@@ -590,15 +605,15 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The number of records affected</returns>
-        public static int DeleteList<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static int DeleteList<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null, bool deletePermanently = false)
         {
-            var sb = BuildDeleteListQuery<T>(whereConditions);
+            var sb = BuildDeleteListQuery<T>(whereConditions, deletePermanently);
             return connection.Execute(sb, whereConditions, transaction, commandTimeout);
         }
 
-        private static string BuildDeleteListQuery<T>(object whereConditions)
+        private static string BuildDeleteListQuery<T>(object whereConditions, bool deletePermanently)
         {
-            var (sb, idProps, currentType) = BuildGenericDeleteQuery<T>();
+            var (sb, idProps, currentType) = BuildGenericDeleteQuery<T>(deletePermanently);
             var whereprops = GetAllProperties(whereConditions).ToArray();
             if (whereprops.Any())
             {
@@ -627,20 +642,20 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The number of records affected</returns>
-        public static int DeleteList<T>(this IDbConnection connection, string conditions, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static int DeleteList<T>(this IDbConnection connection, string conditions, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null, bool deletePermanently = false)
         {
-            var sb = BuildDeleteListQuery<T>(conditions);
+            var sb = BuildDeleteListQuery<T>(conditions, deletePermanently);
             return connection.Execute(sb, parameters, transaction, commandTimeout);
         }
 
-        private static string BuildDeleteListQuery<T>(string conditions)
+        private static string BuildDeleteListQuery<T>(string conditions, bool deletePermanently)
         {
             if (string.IsNullOrEmpty(conditions))
                 throw new ArgumentException("DeleteList<T> requires a where clause");
             if (!conditions.ToLower().Contains("where"))
                 throw new ArgumentException("DeleteList<T> requires a where clause and must contain the WHERE keyword");
 
-            var (sb, idProps, currentType) = BuildGenericDeleteQuery<T>();
+            var (sb, idProps, currentType) = BuildGenericDeleteQuery<T>(deletePermanently);
             sb.Append(" " + conditions);
 
             if (Debugger.IsAttached)
@@ -663,30 +678,37 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Returns a count of records.</returns>
-        public static int RecordCount<T>(this IDbConnection connection, string conditions = "", object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static int RecordCount<T>(this IDbConnection connection, string conditions = "", object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var sb = BuildRecordCountQuery<T>(conditions);
+            var sb = BuildRecordCountQuery<T>(conditions, includeDeleted);
             return connection.ExecuteScalar<int>(sb, parameters, transaction, commandTimeout);
         }
 
-        private static string BuildRecordCountQuery<T>(string conditions)
+        private static string BuildRecordCountQuery<T>(string conditions, bool includeDeleted)
         {
-            var (sb, currentType) = BuildGenericRecordCountQuery<T>();
+            if (!string.IsNullOrEmpty(conditions) && !conditions.ToLower().Contains("where"))
+            {
+                throw new ArgumentException("RecordCount<T> where clause must contain the WHERE keyword");
+            }
+
+            var (sb, currentType, deleteProp) = BuildGenericRecordCountQuery<T>();
             sb.Append(" " + conditions);
+            AddFilterDeletedIfNeeded(sb, deleteProp, includeDeleted, string.IsNullOrEmpty(conditions) ? " where " : " and ");
 
             if (Debugger.IsAttached)
                 Trace.WriteLine(String.Format("RecordCount<{0}>: {1}", currentType, sb));
             return sb.ToString();
         }
 
-        private static (StringBuilder sb, Type currentType) BuildGenericRecordCountQuery<T>()
+        private static (StringBuilder sb, Type currentType, PropertyInfo deleteProp) BuildGenericRecordCountQuery<T>()
         {
             var currenttype = typeof(T);
             var name = GetTableName(currenttype);
+            var deleteProp = GetSoftDeleteProperty(currenttype);
             var sb = new StringBuilder();
             sb.Append("Select count(1)");
             sb.AppendFormat(" from {0}", name);
-            return (sb, currenttype);
+            return (sb, currenttype, deleteProp);
         }
 
         /// <summary>
@@ -702,20 +724,25 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Returns a count of records.</returns>
-        public static int RecordCount<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static int RecordCount<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var sb = BuildRecordCountQuery<T>(whereConditions);
+            var sb = BuildRecordCountQuery<T>(whereConditions, includeDeleted);
             return connection.ExecuteScalar<int>(sb, whereConditions, transaction, commandTimeout);
         }
 
-        private static string BuildRecordCountQuery<T>(object whereConditions)
+        private static string BuildRecordCountQuery<T>(object whereConditions, bool includeDeleted)
         {
-            var (sb, currentType) = BuildGenericRecordCountQuery<T>();
+            var (sb, currentType, deleteProp) = BuildGenericRecordCountQuery<T>();
             var whereprops = GetAllProperties(whereConditions).ToArray();
             if (whereprops.Any())
             {
                 sb.Append(" where ");
                 BuildWhere<T>(sb, whereprops);
+                AddFilterDeletedIfNeeded(sb, deleteProp, includeDeleted, " AND ");
+            }
+            else
+            {
+                AddFilterDeletedIfNeeded(sb, deleteProp, includeDeleted, " where ");
             }
 
             if (Debugger.IsAttached)

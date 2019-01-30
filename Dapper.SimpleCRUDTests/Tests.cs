@@ -1,13 +1,11 @@
-﻿using System.ComponentModel;
+﻿using MySql.Data.MySqlClient;
+using Npgsql;
+using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
-using System.Diagnostics;
-using System.Linq;
-using System.Collections.Generic;
-using System;
 using System.Data.SQLite;
-using MySql.Data.MySqlClient;
-using Npgsql;
+using System.Linq;
 
 namespace Dapper.SimpleCRUDTests
 {
@@ -161,6 +159,21 @@ namespace Dapper.SimpleCRUDTests
         public int Key2 { get; set; }
     }
 
+    public class EntityWithSoftDelete
+    {
+        public long Id { get; set; }
+        public string Name { get; set; }
+        public DateTimeOffset? Deleted { get; set; }
+    }
+
+    public class EntityWithCustomSoftDelete
+    {
+        public long Id { get; set; }
+        public string Name { get; set; }
+        [SoftDelete]
+        public DateTimeOffset? WierdNameForDeleteColumn { get; set; }
+    }
+
     #endregion
 
     public class Tests
@@ -169,7 +182,7 @@ namespace Dapper.SimpleCRUDTests
         {
             _dbtype = dbtype;
         }
-        private SimpleCRUD.Dialect _dbtype;
+        private readonly SimpleCRUD.Dialect _dbtype;
 
         private IDbConnection GetOpenConnection()
         {
@@ -1293,6 +1306,410 @@ namespace Dapper.SimpleCRUDTests
                 allColumnDapper.IgnoreAll.IsNull();
 
                 connection.Delete<IgnoreColumns>(itemId);
+            }
+        }
+
+        public void TestDeleteIsSoftDelete()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var user = connection.Get<EntityWithSoftDelete>(id);
+                user.IsNotNull();
+                connection.Delete(user);
+
+                var deletedUsers = connection.GetList<EntityWithSoftDelete>(includeDeleted: true);
+                deletedUsers.Count().IsEqualTo(1);
+
+                var normalUsers = connection.GetList<EntityWithSoftDelete>();
+                normalUsers.Count().IsEqualTo(0);
+
+                var deletedUser = connection.Get<EntityWithSoftDelete>(id);
+                deletedUser.IsNull();
+
+                var actualDeleteUser = connection.Get<EntityWithSoftDelete>(id, includeDeleted: true);
+                actualDeleteUser.IsNotNull();
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsSoftDeleteWithCustomProperty()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id = connection.Insert<long, EntityWithCustomSoftDelete>(new EntityWithCustomSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var user = connection.Get<EntityWithCustomSoftDelete>(id);
+                user.IsNotNull();
+                connection.Delete(user);
+
+                var deletedUsers = connection.GetList<EntityWithCustomSoftDelete>(includeDeleted: true);
+                deletedUsers.Count().IsEqualTo(1);
+
+                var normalUsers = connection.GetList<EntityWithCustomSoftDelete>();
+                normalUsers.Count().IsEqualTo(0);
+
+                var deletedUser = connection.Get<EntityWithCustomSoftDelete>(id);
+                deletedUser.IsNull();
+
+                var actualDeleteUser = connection.Get<EntityWithCustomSoftDelete>(id, includeDeleted: true);
+                actualDeleteUser.IsNotNull();
+
+                connection.Execute("Delete from EntityWithCustomSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsSoftDeleteWithIdDelete()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var user = connection.Get<EntityWithSoftDelete>(id);
+                user.IsNotNull();
+                connection.Delete<EntityWithSoftDelete>(id);
+
+                var deletedUsers = connection.GetList<EntityWithSoftDelete>(includeDeleted: true);
+                deletedUsers.Count().IsEqualTo(1);
+
+                var normalUsers = connection.GetList<EntityWithSoftDelete>();
+                normalUsers.Count().IsEqualTo(0);
+
+                var deletedUser = connection.Get<EntityWithSoftDelete>(id);
+                deletedUser.IsNull();
+
+                var actualDeleteUser = connection.Get<EntityWithSoftDelete>(id, includeDeleted: true);
+                actualDeleteUser.IsNotNull();
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsSoftDeleteWithCustomPropertyWithIdDelete()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id = connection.Insert<long, EntityWithCustomSoftDelete>(new EntityWithCustomSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var user = connection.Get<EntityWithCustomSoftDelete>(id);
+                user.IsNotNull();
+                connection.Delete<EntityWithCustomSoftDelete>(id);
+
+                var deletedUsers = connection.GetList<EntityWithCustomSoftDelete>(includeDeleted: true);
+                deletedUsers.Count().IsEqualTo(1);
+
+                var normalUsers = connection.GetList<EntityWithCustomSoftDelete>();
+                normalUsers.Count().IsEqualTo(0);
+
+                var deletedUser = connection.Get<EntityWithCustomSoftDelete>(id);
+                deletedUser.IsNull();
+
+                var actualDeleteUser = connection.Get<EntityWithCustomSoftDelete>(id, includeDeleted: true);
+                actualDeleteUser.IsNotNull();
+
+                connection.Execute("Delete from EntityWithCustomSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsSoftDeleteList()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id1 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id2 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id3 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id4 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+
+                var list = connection.GetList<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" });
+                list.Count().IsEqualTo(4);
+
+                connection.DeleteList<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" });
+
+                var deletedList = connection.GetList<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" });
+                deletedList.Count().IsEqualTo(0);
+
+                var actualDeletedList = connection.GetList<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" }, includeDeleted: true);
+                actualDeletedList.Count().IsEqualTo(4);
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsSoftDeleteListWithConditions()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id1 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id2 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id3 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id4 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+
+                var list = connection.GetList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+                list.Count().IsEqualTo(4);
+
+                connection.DeleteList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+
+                var deletedList = connection.GetList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+                deletedList.Count().IsEqualTo(0);
+
+                var actualDeletedList = connection.GetList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'", includeDeleted: true);
+                actualDeletedList.Count().IsEqualTo(4);
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsSoftDeleteListPagedWithConditions()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id1 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id2 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id3 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id4 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+
+                var list = connection.GetListPaged<EntityWithSoftDelete>(1, 2, "where [Name] = 'TestEntityWithSoftDelete'", "Id");
+                list.Count().IsEqualTo(2);
+
+                connection.DeleteList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+
+                var deletedList = connection.GetListPaged<EntityWithSoftDelete>(1, 2, "where [Name] = 'TestEntityWithSoftDelete'", "Id");
+                deletedList.Count().IsEqualTo(0);
+
+                var actualDeletedList = connection.GetListPaged<EntityWithSoftDelete>(1, 2, "where [Name] = 'TestEntityWithSoftDelete'", "Id", includeDeleted: true);
+                actualDeletedList.Count().IsEqualTo(2);
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsHardDelete()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var user = connection.Get<EntityWithSoftDelete>(id);
+                user.IsNotNull();
+                connection.Delete(user, deletePermanently: true);
+
+                var deletedUsers = connection.GetList<EntityWithSoftDelete>(includeDeleted: true);
+                deletedUsers.Count().IsEqualTo(0);
+
+                var normalUsers = connection.GetList<EntityWithSoftDelete>();
+                normalUsers.Count().IsEqualTo(0);
+
+                var deletedUser = connection.Get<EntityWithSoftDelete>(id);
+                deletedUser.IsNull();
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsHardDeleteWithCustomProperty()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id = connection.Insert<long, EntityWithCustomSoftDelete>(new EntityWithCustomSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var user = connection.Get<EntityWithCustomSoftDelete>(id);
+                user.IsNotNull();
+                connection.Delete(user, deletePermanently: true);
+
+                var deletedUsers = connection.GetList<EntityWithCustomSoftDelete>(includeDeleted: true);
+                deletedUsers.Count().IsEqualTo(0);
+
+                var normalUsers = connection.GetList<EntityWithCustomSoftDelete>();
+                normalUsers.Count().IsEqualTo(0);
+
+                var deletedUser = connection.Get<EntityWithCustomSoftDelete>(id);
+                deletedUser.IsNull();
+
+                connection.Execute("Delete from EntityWithCustomSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsHardDeleteWithIdDelete()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var user = connection.Get<EntityWithSoftDelete>(id);
+                user.IsNotNull();
+                connection.Delete<EntityWithSoftDelete>(id, deletePermanently: true);
+
+                var deletedUsers = connection.GetList<EntityWithSoftDelete>(includeDeleted: true);
+                deletedUsers.Count().IsEqualTo(0);
+
+                var normalUsers = connection.GetList<EntityWithSoftDelete>();
+                normalUsers.Count().IsEqualTo(0);
+
+                var deletedUser = connection.Get<EntityWithSoftDelete>(id);
+                deletedUser.IsNull();
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsHardDeleteWithCustomPropertyWithIdDelete()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id = connection.Insert<long, EntityWithCustomSoftDelete>(new EntityWithCustomSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var user = connection.Get<EntityWithCustomSoftDelete>(id);
+                user.IsNotNull();
+                connection.Delete<EntityWithCustomSoftDelete>(id, deletePermanently: true);
+
+                var deletedUsers = connection.GetList<EntityWithCustomSoftDelete>(includeDeleted: true);
+                deletedUsers.Count().IsEqualTo(0);
+
+                var normalUsers = connection.GetList<EntityWithCustomSoftDelete>();
+                normalUsers.Count().IsEqualTo(0);
+
+                var deletedUser = connection.Get<EntityWithCustomSoftDelete>(id);
+                deletedUser.IsNull();
+
+                connection.Execute("Delete from EntityWithCustomSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsHardDeleteList()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id1 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id2 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id3 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id4 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+
+                var list = connection.GetList<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" });
+                list.Count().IsEqualTo(4);
+
+                connection.DeleteList<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" }, deletePermanently: true);
+
+                var deletedList = connection.GetList<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" });
+                deletedList.Count().IsEqualTo(0);
+
+                var actualDeletedList = connection.GetList<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" }, includeDeleted: true);
+                actualDeletedList.Count().IsEqualTo(0);
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsHardDeleteListWithConditions()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id1 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id2 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id3 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id4 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+
+                var list = connection.GetList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+                list.Count().IsEqualTo(4);
+
+                connection.DeleteList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'", deletePermanently: true);
+
+                var deletedList = connection.GetList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+                deletedList.Count().IsEqualTo(0);
+
+                var actualDeletedList = connection.GetList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'", includeDeleted: true);
+                actualDeletedList.Count().IsEqualTo(0);
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestDeleteIsHardDeleteListPagedWithConditions()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id1 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id2 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id3 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id4 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+
+                var list = connection.GetListPaged<EntityWithSoftDelete>(1, 2, "where [Name] = 'TestEntityWithSoftDelete'", "Id");
+                list.Count().IsEqualTo(2);
+
+                connection.DeleteList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'", deletePermanently: true);
+
+                var deletedList = connection.GetListPaged<EntityWithSoftDelete>(1, 2, "where [Name] = 'TestEntityWithSoftDelete'", "Id");
+                deletedList.Count().IsEqualTo(0);
+
+                var actualDeletedList = connection.GetListPaged<EntityWithSoftDelete>(1, 2, "where [Name] = 'TestEntityWithSoftDelete'", "Id", includeDeleted: true);
+                actualDeletedList.Count().IsEqualTo(0);
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestRecordCountSoftDelete()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id1 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id2 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id3 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id4 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+
+                var list = connection.RecordCount<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+                list.IsEqualTo(4);
+
+                connection.DeleteList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+
+                var recordCount = connection.RecordCount<EntityWithSoftDelete>("where [Name] = @Name", parameters: new { Name = "TestEntityWithSoftDelete" });
+                recordCount.IsEqualTo(0);
+
+                var recordCountDeleted = connection.RecordCount<EntityWithSoftDelete>("where [Name] = @Name", parameters: new { Name = "TestEntityWithSoftDelete" }, includeDeleted: true);
+                recordCountDeleted.IsEqualTo(4);
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestRecordCountSoftDeleteAsObject()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id1 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id2 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id3 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id4 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+
+                var list = connection.RecordCount<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+                list.IsEqualTo(4);
+
+                connection.DeleteList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+
+                var recordCount = connection.RecordCount<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" });
+                recordCount.IsEqualTo(0);
+
+                var recordCountDeleted = connection.RecordCount<EntityWithSoftDelete>(new { Name = "TestEntityWithSoftDelete" }, includeDeleted: true);
+                recordCountDeleted.IsEqualTo(4);
+
+                connection.Execute("Delete from EntityWithSoftDelete");
+            }
+        }
+
+        public void TestRecordCountSoftDeleteNoConditions()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                var id1 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id2 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id3 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+                var id4 = connection.Insert<long, EntityWithSoftDelete>(new EntityWithSoftDelete() { Name = "TestEntityWithSoftDelete" });
+
+                var list = connection.RecordCount<EntityWithSoftDelete>();
+                list.IsEqualTo(4);
+
+                connection.DeleteList<EntityWithSoftDelete>("where [Name] = 'TestEntityWithSoftDelete'");
+
+                var recordCount = connection.RecordCount<EntityWithSoftDelete>();
+                recordCount.IsEqualTo(0);
+
+                var recordCountDeleted = connection.RecordCount<EntityWithSoftDelete>(includeDeleted: true);
+                recordCountDeleted.IsEqualTo(4);
+
+                connection.Execute("Delete from EntityWithSoftDelete");
             }
         }
 

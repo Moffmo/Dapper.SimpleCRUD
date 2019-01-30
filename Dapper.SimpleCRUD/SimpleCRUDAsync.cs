@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Data;
-using System.Diagnostics;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace Dapper
@@ -150,7 +147,7 @@ namespace Dapper
             var r = await connection.QueryAsync(builder.sb, entityToInsert, transaction, commandTimeout);
             return ReturnInsertKey<TKey, TEntity>(builder, entityToInsert, r);
         }
-        
+
         /// <summary>
         ///  <para>Updates a record or records in the database asynchronously</para>
         ///  <para>By default updates records in the table matching the class name</para>
@@ -185,9 +182,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The number of records affected</returns>
-        public static Task<int> DeleteAsync<T>(this IDbConnection connection, T entityToDelete, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static Task<int> DeleteAsync<T>(this IDbConnection connection, T entityToDelete, IDbTransaction transaction = null, int? commandTimeout = null, bool deletePermanently = false)
         {
-            var sb = BuildDeleteQuery<T>(entityToDelete);
+            var sb = BuildDeleteQuery<T>(entityToDelete, deletePermanently);
             return connection.ExecuteAsync(sb, entityToDelete, transaction, commandTimeout);
         }
 
@@ -205,9 +202,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The number of records affected</returns>
-        public static Task<int> DeleteAsync<T>(this IDbConnection connection, object id, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static Task<int> DeleteAsync<T>(this IDbConnection connection, object id, IDbTransaction transaction = null, int? commandTimeout = null, bool deletePermanently = false)
         {
-            var (sb, dynParms) = BuildDeleteQuery<T>(id);
+            var (sb, dynParms) = BuildDeleteQuery<T>(id, deletePermanently);
             return connection.ExecuteAsync(sb, dynParms, transaction, commandTimeout);
         }
 
@@ -227,9 +224,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The number of records affected</returns>
-        public static Task<int> DeleteListAsync<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static Task<int> DeleteListAsync<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null, bool deletePermanently = false)
         {
-            var sb = BuildDeleteListQuery<T>(whereConditions);
+            var sb = BuildDeleteListQuery<T>(whereConditions, deletePermanently);
             return connection.ExecuteAsync(sb, whereConditions, transaction, commandTimeout);
         }
 
@@ -248,9 +245,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The number of records affected</returns>
-        public static Task<int> DeleteListAsync<T>(this IDbConnection connection, string conditions, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static Task<int> DeleteListAsync<T>(this IDbConnection connection, string conditions, object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null, bool deletePermanently = false)
         {
-            var sb = BuildDeleteListQuery<T>(conditions);
+            var sb = BuildDeleteListQuery<T>(conditions, deletePermanently);
             return connection.ExecuteAsync(sb, parameters, transaction, commandTimeout);
         }
 
@@ -268,9 +265,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Returns a count of records.</returns>
-        public static Task<int> RecordCountAsync<T>(this IDbConnection connection, string conditions = "", object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static Task<int> RecordCountAsync<T>(this IDbConnection connection, string conditions = "", object parameters = null, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var sb = BuildRecordCountQuery<T>(conditions);
+            var sb = BuildRecordCountQuery<T>(conditions, includeDeleted);
             return connection.ExecuteScalarAsync<int>(sb, parameters, transaction, commandTimeout);
         }
 
@@ -287,9 +284,9 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>Returns a count of records.</returns>
-        public static Task<int> RecordCountAsync<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static Task<int> RecordCountAsync<T>(this IDbConnection connection, object whereConditions, IDbTransaction transaction = null, int? commandTimeout = null, bool includeDeleted = false)
         {
-            var sb = BuildRecordCountQuery<T>(whereConditions);
+            var sb = BuildRecordCountQuery<T>(whereConditions, includeDeleted);
             return connection.ExecuteScalarAsync<int>(sb.ToString(), whereConditions, transaction, commandTimeout);
         }
     }

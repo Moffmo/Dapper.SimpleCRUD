@@ -1,17 +1,17 @@
-﻿using System;
+﻿using MySql.Data.MySqlClient;
+using Npgsql;
+using System;
 using System.Data.SqlClient;
 using System.Data.SQLite;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
-using MySql.Data.MySqlClient;
-using Npgsql;
 
 namespace Dapper.SimpleCRUDTests
 {
-    class Program
+    internal class Program
     {
-        static void Main()
+        private static void Main()
         {
             Setup();
             RunTests();
@@ -61,6 +61,8 @@ namespace Dapper.SimpleCRUDTests
                 connection.Execute(@" CREATE TABLE GradingScale ([ScaleID] [int] IDENTITY(1,1) NOT NULL, [AppID] [int] NULL, [ScaleName] [nvarchar](50) NOT NULL, [IsDefault] [bit] NOT NULL)");
                 connection.Execute(@" CREATE TABLE KeyMaster ([Key1] [int] NOT NULL, [Key2] [int] NOT NULL, CONSTRAINT [PK_KeyMaster] PRIMARY KEY CLUSTERED ([Key1] ASC, [Key2] ASC))");
                 connection.Execute(@" CREATE TABLE [dbo].[stringtest]([stringkey] [varchar](50) NOT NULL,[name] [varchar](50) NOT NULL, CONSTRAINT [PK_stringkey] PRIMARY KEY CLUSTERED ([stringkey] ASC))");
+                connection.Execute(@" create table EntityWithSoftDelete (Id bigint IDENTITY(1,1) not null, Name nvarchar(100) not null, Deleted datetimeoffset null) ");
+                connection.Execute(@" create table EntityWithCustomSoftDelete (Id bigint IDENTITY(1,1) not null, Name nvarchar(100) not null, WierdNameForDeleteColumn datetimeoffset null) ");
 
             }
             Console.WriteLine("Created database");
@@ -90,6 +92,8 @@ namespace Dapper.SimpleCRUDTests
                 connection.Execute(@" CREATE TABLE GUIDTest(Id uuid PRIMARY KEY,name varchar NOT NULL)");
                 connection.Execute(@" create table StrangeColumnNames (ItemId Serial PRIMARY KEY, word varchar not null, colstringstrangeword varchar, keywordedproperty varchar) ");
                 connection.Execute(@" create table UserWithoutAutoIdentity (Id int PRIMARY KEY, Name varchar not null, Age int not null) ");
+                connection.Execute(@" create table EntityWithSoftDelete (Id int PRIMARY KEY, Name varchar not null, Deleted datetimeoffset null) ");
+                connection.Execute(@" create table EntityWithCustomSoftDelete (Id int PRIMARY KEY, Name varchar not null, WierdNameForDeleteColumn datetimeoffset null) ");
 
             }
 
@@ -114,6 +118,8 @@ namespace Dapper.SimpleCRUDTests
                 connection.Execute(@" create table IgnoreColumns (Id INTEGER PRIMARY KEY AUTOINCREMENT, IgnoreInsert nvarchar(100) null, IgnoreUpdate nvarchar(100) null, IgnoreSelect nvarchar(100)  null, IgnoreAll nvarchar(100) null) ");
                 connection.Execute(@" CREATE TABLE KeyMaster (Key1 INTEGER NOT NULL, Key2 INTEGER NOT NULL, PRIMARY KEY ([Key1], [Key2]))");
                 connection.Execute(@" CREATE TABLE stringtest (stringkey nvarchar(50) NOT NULL,name nvarchar(50) NOT NULL, PRIMARY KEY ([stringkey] ASC))");
+                connection.Execute(@" create table EntityWithSoftDelete (Id INTEGER PRIMARY KEY, Name nvarchar(100) not null, Deleted TIMESTAMP null) ");
+                connection.Execute(@" create table EntityWithCustomSoftDelete (Id INTEGER PRIMARY KEY, Name nvarchar(100) not null, WierdNameForDeleteColumn TIMESTAMP null) ");
 
             }
         }
@@ -142,6 +148,8 @@ namespace Dapper.SimpleCRUDTests
                 connection.Execute(@" create table UserWithoutAutoIdentity (Id INTEGER PRIMARY KEY, Name nvarchar(100) not null, Age int not null) ");
                 connection.Execute(@" create table IgnoreColumns (Id INTEGER PRIMARY KEY AUTO_INCREMENT, IgnoreInsert nvarchar(100) null, IgnoreUpdate nvarchar(100) null, IgnoreSelect nvarchar(100)  null, IgnoreAll nvarchar(100) null) ");
                 connection.Execute(@" CREATE table KeyMaster (Key1 INTEGER NOT NULL, Key2 INTEGER NOT NULL, CONSTRAINT PK_KeyMaster PRIMARY KEY CLUSTERED (Key1 ASC, Key2 ASC))");
+                connection.Execute(@" create table EntityWithSoftDelete (Id INTEGER PRIMARY KEY, Name nvarchar(100) not null, Deleted datetime null) ");
+                connection.Execute(@" create table EntityWithCustomSoftDelete (Id INTEGER PRIMARY KEY, Name nvarchar(100) not null, WierdNameForDeleteColumn datetime null) ");
             }
 
         }
